@@ -1,19 +1,56 @@
-#include "pico_explorer.hpp"
-#include "drivers/st7789/st7789.hpp"
-#include "libraries/pico_graphics/pico_graphics.hpp"
+#include "pico/audio_i2s.h"
 
-using namespace pimoroni;
+#define SAMPLE_RATE 48000
+#define SAMPLES_PER_BUFFER 512
 
-ST7789 st7789(PicoExplorer::WIDTH, PicoExplorer::HEIGHT, ROTATE_0, false, get_spi_pins(BG_SPI_FRONT));
-PicoGraphics_PenRGB332 graphics(st7789.width, st7789.height, nullptr);
+#define PICO_AUDIO_PACK_I2S_DATA 9
+#define PICO_AUDIO_PACK_I2S_BCLK 10
+
 
 int main() {
-    graphics.set_pen(255, 0, 0);
+    static audio_format_t audio_format = {
+        .sample_freq = SAMPLE_RATE,
+        .format = AUDIO_BUFFER_FORMAT_PCM_S16,
+        .channel_count = 1,
+    };
 
+    static struct audio_buffer_format producer_format = {
+        .format = &audio_format,
+        .sample_stride = 2
+    };
+
+    struct audio_buffer_pool *producer_pool = audio_new_producer_pool(
+        &producer_format,
+        3,
+        SAMPLES_PER_BUFFER
+    );
+
+    struct audio_i2s_config config = {
+        .data_pin = PICO_AUDIO_PACK_I2S_DATA,
+        .clock_pin_base = PICO_AUDIO_PACK_I2S_BCLK,
+        .dma_channel = 0,
+        .pio_sm = 0,
+    };
+
+    const struct audio_format *output_format = audio_i2s_setup(&audio_format, &config);
+    if (!output_format) {
+        panic("PicoAudio: Unable to open audio device.\n");
+    }
+
+    bool status = audio_i2s_connect(producer_pool);
+    if (!status) {
+        panic("PicoAudio: Unable to connect to audio device.\n");
+    }
+
+    audio_i2s_set_enabled(true);
+    
     while(true) {
-        graphics.pixel(Point(0, 0));
-
-        // now we've done our drawing let's update the screen
-        st7789.update(&graphics);
+        struct audio_buffer *buffer = take_audio_buffer(producer_pool, true);
+        int16_t *samples = (int16_t *) buffer->buffer->bytes;
+        for (uint i = 0; i < buffer->max_sample_count; i++) {
+            samples[i] = (int16_t)0;
+        }
+        buffer->sample_count = buffer->max_sample_count;
+        give_audio_buffer(producer_pool, buffer);
     }
 }
