@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-20.04
             name: Linux
             cache-key: linux
-            cmake-args: '-DPIMORONI_PICO_PATH=$GITHUB_WORKSPACE/pimoroni-pico -DPICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/install'
+            cmake-args: '-DPIMORONI_PICO_PATH=$GITHUB_WORKSPACE/pimoroni-pico -DPICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk -DPICO_SDK_POST_LIST_DIRS=$GITHUB_WORKSPACE/pico-extras -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/install'
             apt-packages: clang-tidy gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
 
     runs-on: ${{matrix.os}}
@@ -27,6 +27,7 @@ jobs:
     env:
       PICO_SDK_PATH: $GITHUB_WORKSPACE/pico-sdk
       PIMORONI_PICO_LIBS: $GITHUB_WORKSPACE/pimoroni-pico
+      PICO_SDK_POST_LIST_DIRS: $GITHUB_WORKSPACE/pico-extras
       RELEASE_FILE: ${{github.event.repository.name}}-${{github.event.release.tag_name}}
 
     steps:
@@ -48,6 +49,14 @@ jobs:
       with:
         repository: raspberrypi/pico-sdk
         path: pico-sdk
+        submodules: true
+
+    # Checkout the Pico Extras
+    - name: Checkout Pico Extras
+      uses: actions/checkout@v3
+      with:
+        repository: raspberrypi/pico-extras
+        path: pico-extras
         submodules: true
 
     # Linux deps
