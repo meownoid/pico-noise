@@ -17,11 +17,17 @@ add_executable(${NAME}
 
 target_link_libraries(${NAME} pico_stdlib pico_audio_i2s)
 
+target_compile_definitions(
+    ${NAME}
+    PRIVATE
+    PICO_AUDIO_I2S_MONO_INPUT=1
+    USE_AUDIO_I2S=1
+)
+
 pico_add_extra_outputs(${NAME})
 
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.uf2
-    ${CMAKE_CURRENT_LIST_DIR}/README.md
     DESTINATION .
 )
 
