@@ -2,12 +2,15 @@
 #include "pico/audio_i2s.h"
 #include "hardware/adc.h"
 
-#define SAMPLE_RATE 44100
-#define SAMPLES_PER_BUFFER 256
-#define BUFFER_COUNT 3
+#define SAMPLE_RATE 96000
+#define SAMPLES_PER_BUFFER 1024
+#define BUFFER_COUNT 4
+#define LOWPASS_CUTOFF 4000
 
 #define PICO_AUDIO_PACK_I2S_DATA 9
 #define PICO_AUDIO_PACK_I2S_BCLK 10
+
+#define Q31_ONE (1 << 31)
 
 // Function to collect entropy from ADC noise
 uint8_t get_adc_random_bit(void)
@@ -91,7 +94,7 @@ inline int32_t pcg32_normal()
     return result / 6 - 0xffff;
 }
 
-inline int16_t clip16(int32_t sample)
+inline int32_t clip16(int32_t sample)
 {
     return sample <= -0x8000 ? -0x8000 : (sample > 0x7fff ? 0x7fff : sample);
 }
@@ -139,7 +142,13 @@ int main()
 
     audio_i2s_set_enabled(true);
 
-    int32_t sample = 0;
+    const int64_t RC_q31_lp = (1LL << 31) / (2 * 314 * LOWPASS_CUTOFF);
+    const int64_t dt_q31_lp = (1LL << 31) / SAMPLE_RATE;
+    const int32_t alpha_lp = (dt_q31_lp * Q31_ONE) / (RC_q31_lp + dt_q31_lp);
+    const int32_t alpha_lp_inv = Q31_ONE - alpha_lp;
+
+    int32_t x = 0;
+    int32_t y_lp = 0;
 
     while (true)
     {
@@ -147,8 +156,12 @@ int main()
         int16_t *samples = (int16_t *)buffer->buffer->bytes;
         for (uint i = 0; i < buffer->max_sample_count; i++)
         {
-            sample = clip16(sample + (pcg32_normal() >> 7));
-            samples[i] = static_cast<int16_t>(sample);
+            // Integrate normal white noise
+            x = clip16(x + (pcg32_normal() >> 7));
+            // Apply low-pass filter
+            y_lp = (((int64_t)alpha_lp * (int64_t)x) >> 31) + (((int64_t)alpha_lp_inv * (int64_t)y_lp) >> 31);
+            // Output to audio buffer
+            samples[i] = clip16(y_lp);
         }
         buffer->sample_count = buffer->max_sample_count;
         give_audio_buffer(producer_pool, buffer);
