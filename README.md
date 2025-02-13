@@ -1,14 +1,6 @@
-# Pico C++ Boilerplate Project <!-- omit in toc -->
+# Brown noise generator for Raspberry Pi Pico
 
-This project is intended as a starting point for working with the Pico SDK and Pimoroni Libraries in C++.
 
-- [Before you start](#before-you-start)
-- [Preparing your build environment](#preparing-your-build-environment)
-- [Grab the Pimoroni libraries](#grab-the-pimoroni-libraries)
-- [Clone this boilerplate](#clone-this-boilerplate)
-- [Prepare Visual Studio Code](#prepare-visual-studio-code)
-- [Prepare your project](#prepare-your-project)
-- [Pick your LICENSE](#pick-your-license)
 
 ## Before you start
 
