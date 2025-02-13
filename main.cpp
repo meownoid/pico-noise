@@ -3,7 +3,7 @@
 #include "hardware/adc.h"
 
 #define SAMPLE_RATE 96000
-#define SAMPLES_PER_BUFFER 1024
+#define SAMPLES_PER_BUFFER 512
 #define BUFFER_COUNT 4
 #define LOWPASS_CUTOFF 4000
 
