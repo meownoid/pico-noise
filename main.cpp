@@ -1,35 +1,107 @@
-#include "pico/audio_i2s.h"
 #include "pico/stdlib.h"
+#include "pico/audio_i2s.h"
+#include "hardware/adc.h"
 
-#define SAMPLE_RATE 48000
-#define SAMPLES_PER_BUFFER 512
-#define BUFFER_COUNT 4
+#define SAMPLE_RATE 44100
+#define SAMPLES_PER_BUFFER 256
+#define BUFFER_COUNT 3
 
 #define PICO_AUDIO_PACK_I2S_DATA 9
 #define PICO_AUDIO_PACK_I2S_BCLK 10
 
-
-uint32_t prng_xorshift_state = 0x32B71700;
-
-uint32_t prng_xorshift_next() {
-    uint32_t x = prng_xorshift_state;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    prng_xorshift_state = x;
-    return x;
+// Function to collect entropy from ADC noise
+uint8_t get_adc_random_bit(void)
+{
+    adc_select_input(0);
+    uint16_t raw_adc_value = adc_read();
+    // Return only the least significant bit
+    return raw_adc_value & 1;
 }
 
-int32_t prng_normal() {
-    uint32_t r0 = prng_xorshift_next();
-    uint32_t r1 = prng_xorshift_next();
-    uint32_t n = ((r0 & 0xffff) + (r1 & 0xffff) + (r0 >> 16) + (r1 >> 16)) / 2;
-    return n - 0xffff;
+// Function to generate an 8-bit random number
+uint8_t get_random_byte(void)
+{
+    uint8_t random_byte = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        random_byte = (random_byte << 1) | get_adc_random_bit();
+    }
+    return random_byte;
 }
 
+// Function to generate a 64-bit random number
+uint64_t get_random_number(void)
+{
+    uint64_t random_number = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        random_number = (random_number << 8) | get_random_byte();
+    }
+    return random_number;
+}
 
-int main() {
+// *Really* minimal PCG32 code / (c) 2014 M.E. O'Neill / pcg-random.org
+// Licensed under Apache License 2.0 (NO WARRANTY, etc. see website)
+
+typedef struct
+{
+    uint64_t state;
+    uint64_t inc;
+} pcg32_random_t;
+static pcg32_random_t pcg32_global = {0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
+
+inline uint32_t pcg32_random_r(pcg32_random_t *rng)
+{
+    uint64_t oldstate = rng->state;
+    // Advance internal state
+    rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
+    // Calculate output function (XSH RR), uses old state for max ILP
+    uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint32_t rot = oldstate >> 59u;
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+inline void pcg32_srandom_r(pcg32_random_t *rng, uint64_t initstate, uint64_t initseq)
+{
+    rng->state = 0U;
+    rng->inc = (initseq << 1u) | 1u;
+    pcg32_random_r(rng);
+    rng->state += initstate;
+    pcg32_random_r(rng);
+}
+
+inline void pcg32_srandom(uint64_t seed, uint64_t seq)
+{
+    pcg32_srandom_r(&pcg32_global, seed, seq);
+}
+
+inline uint32_t pcg32_random()
+{
+    return pcg32_random_r(&pcg32_global);
+}
+
+inline int32_t pcg32_normal()
+{
+    uint32_t result = 0;
+    for (uint i = 0; i < 6; i++)
+    {
+        uint32_t r = pcg32_random();
+        result += (r & 0xffff) + (r >> 16);
+    }
+    return result / 6 - 0xffff;
+}
+
+inline int16_t clip16(int32_t sample)
+{
+    return sample <= -0x8000 ? -0x8000 : (sample > 0x7fff ? 0x7fff : sample);
+}
+
+int main()
+{
     stdio_init_all();
+    adc_init();
+    adc_gpio_init(26); // ADC0
+    pcg32_srandom(get_random_number() ^ time_us_64(), 0);
 
     audio_format_t audio_format = {
         .sample_freq = SAMPLE_RATE,
@@ -39,14 +111,12 @@ int main() {
 
     struct audio_buffer_format producer_format = {
         .format = &audio_format,
-        .sample_stride = 2
-    };
+        .sample_stride = 2};
 
     struct audio_buffer_pool *producer_pool = audio_new_producer_pool(
         &producer_format,
         BUFFER_COUNT,
-        SAMPLES_PER_BUFFER
-    );
+        SAMPLES_PER_BUFFER);
 
     struct audio_i2s_config config = {
         .data_pin = PICO_AUDIO_PACK_I2S_DATA,
@@ -56,25 +126,29 @@ int main() {
     };
 
     const struct audio_format *output_format = audio_i2s_setup(&audio_format, &config);
-    if (!output_format) {
+    if (!output_format)
+    {
         panic("PicoAudio: Unable to open audio device.\n");
     }
 
-    bool status = audio_i2s_connect(producer_pool);
-    if (!status) {
+    bool status = audio_i2s_connect_extra(producer_pool, false, BUFFER_COUNT, SAMPLES_PER_BUFFER, NULL);
+    if (!status)
+    {
         panic("PicoAudio: Unable to connect to audio device.\n");
     }
 
     audio_i2s_set_enabled(true);
 
     int32_t sample = 0;
-    
-    while(true) {
+
+    while (true)
+    {
         struct audio_buffer *buffer = take_audio_buffer(producer_pool, true);
-        int16_t *samples = (int16_t *) buffer->buffer->bytes;
-        for (uint i = 0; i < buffer->max_sample_count; i++) {
-            sample += prng_normal() / 1000;
-            samples[i] = static_cast<int16_t>(sample <= -0x8000 ? -0x8000 : (sample > 0x7fff ? 0x7fff : sample));
+        int16_t *samples = (int16_t *)buffer->buffer->bytes;
+        for (uint i = 0; i < buffer->max_sample_count; i++)
+        {
+            sample = clip16(sample + (pcg32_normal() >> 7));
+            samples[i] = static_cast<int16_t>(sample);
         }
         buffer->sample_count = buffer->max_sample_count;
         give_audio_buffer(producer_pool, buffer);

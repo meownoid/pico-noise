@@ -15,7 +15,7 @@ add_executable(${NAME}
     main.cpp
 )
 
-target_link_libraries(${NAME} pico_stdlib pico_audio_i2s)
+target_link_libraries(${NAME} pico_stdlib pico_audio_i2s hardware_adc)
 
 target_compile_definitions(
     ${NAME}
