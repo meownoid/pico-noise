@@ -5,12 +5,10 @@
 #define SAMPLE_RATE 96000
 #define SAMPLES_PER_BUFFER 512
 #define BUFFER_COUNT 4
-#define LOWPASS_CUTOFF 6000
+#define LOWPASS_CUTOFF 100
 
 #define PICO_AUDIO_PACK_I2S_DATA 9
 #define PICO_AUDIO_PACK_I2S_BCLK 10
-
-#define Q31_ONE (1 << 31)
 
 // Function to collect entropy from ADC noise
 uint8_t adc_random_bit()
@@ -152,10 +150,10 @@ int main()
 
     audio_i2s_set_enabled(true);
 
-    const int64_t RC_q31 = (1LL << 31) / (2 * 314 * LOWPASS_CUTOFF);
-    const int64_t dt_q31 = (1LL << 31) / SAMPLE_RATE;
-    const int64_t alpha = (dt_q31 * Q31_ONE) / (RC_q31 + dt_q31);
-    const int64_t alpha_inv = Q31_ONE - alpha;
+    const int64_t rc = (1LL << 41) / (2 * 3217 * LOWPASS_CUTOFF);
+    const int64_t dt = (1LL << 31) / SAMPLE_RATE;
+    const int64_t alpha = (1LL << 62) / SAMPLE_RATE / (rc + dt);
+    const int64_t alpha_inv = (1LL << 31) - alpha;
 
     int32_t x = 0;
     int32_t y = 0;
