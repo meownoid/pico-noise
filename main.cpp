@@ -1,18 +1,21 @@
 #include "pico/stdlib.h"
+#include "pico/float.h"
 #include "pico/audio_i2s.h"
 #include "hardware/adc.h"
 
-#define SAMPLE_RATE 96000
+#define SAMPLE_RATE 48000
 #define SAMPLES_PER_BUFFER 512
 #define BUFFER_COUNT 4
-#define LOWPASS_CUTOFF 6000
+#define HIGH_PASS_CUTOFF 80
+#define LOW_PASS_CUTOFF 800
+#define GAIN 0.5f
 
 #define PICO_AUDIO_PACK_I2S_DATA 9
 #define PICO_AUDIO_PACK_I2S_BCLK 10
 
-#define Q31_ONE (1 << 31)
+#define PI 3.14159265359f
 
-// Function to collect entropy from ADC noise
+
 uint8_t adc_random_bit()
 {
     adc_select_input(0);
@@ -91,7 +94,7 @@ inline uint32_t pcg32_random()
     return pcg32_random_r(&pcg32_global);
 }
 
-inline int32_t random_normal()
+inline int16_t random_normal()
 {
     uint32_t result = 0;
     for (uint i = 0; i < 6; i++)
@@ -102,9 +105,21 @@ inline int32_t random_normal()
     return result / 6 - 0xffff;
 }
 
-inline int32_t clip16(int32_t sample)
+inline int16_t clip16(int32_t sample)
 {
     return sample <= -0x8000 ? -0x8000 : (sample > 0x7fff ? 0x7fff : sample);
+}
+
+float calculate_lowpass_alpha(float cutoff, float sample_rate) {
+    float rc = 1.0f / (2.0f * PI * cutoff);
+    float dt = 1.0f / sample_rate;
+    return dt / (rc + dt);
+}
+
+float calculate_highpass_alpha(float cutoff, float sample_rate) {
+    float rc = 1.0 / (2.0 * PI * cutoff);
+    float dt = 1 / sample_rate;
+    return rc / (rc + dt);
 }
 
 int main()
@@ -152,13 +167,15 @@ int main()
 
     audio_i2s_set_enabled(true);
 
-    const int64_t RC_q31 = (1LL << 31) / (2 * 314 * LOWPASS_CUTOFF);
-    const int64_t dt_q31 = (1LL << 31) / SAMPLE_RATE;
-    const int64_t alpha = (dt_q31 * Q31_ONE) / (RC_q31 + dt_q31);
-    const int64_t alpha_inv = Q31_ONE - alpha;
+    const float alpha_lp = calculate_lowpass_alpha(int2float(LOW_PASS_CUTOFF), int2float(SAMPLE_RATE));
+    const float alpha_hp = calculate_highpass_alpha(int2float(HIGH_PASS_CUTOFF), int2float(SAMPLE_RATE));
+    const float alpha_lp_inv = 1.0f - alpha_lp;
+    const float int16maxf = int2float(1 << 15);
 
-    int32_t x = 0;
-    int32_t y = 0;
+    float x = 0.0f;
+    float x_p = 0.0f;
+    float y_hp = 0.0f;
+    float y_lp = 0.0f;
 
     while (true)
     {
@@ -166,12 +183,17 @@ int main()
         int16_t *samples = (int16_t *)buffer->buffer->bytes;
         for (uint i = 0; i < buffer->max_sample_count; i++)
         {
+            float r = int2float(random_normal() >> 3) / int16maxf;
             // Integrate normal white noise
-            x = clip16(x + (random_normal() >> 7));
+            x += r;
+            // Apply high-pass filter
+            y_hp = alpha_hp * (y_hp + x - x_p);
             // Apply low-pass filter
-            y = ((alpha * (int64_t)x) + (alpha_inv * (int64_t)y)) >> 31;
+            y_lp = alpha_lp * y_hp + alpha_lp_inv * y_lp;
             // Output to audio buffer
-            samples[i] = clip16(y);
+            samples[i] = clip16(float2int_z(y_lp * int16maxf * GAIN));
+            // Remember previous sample
+            x_p = x;
         }
         buffer->sample_count = buffer->max_sample_count;
         give_audio_buffer(producer_pool, buffer);

@@ -22,6 +22,8 @@ target_compile_definitions(
     PRIVATE
     PICO_AUDIO_I2S_MONO_INPUT=1
     USE_AUDIO_I2S=1
+    PICO_FLOAT_SUPPORT_ROM_V1=0
+    PICO_DOUBLE_SUPPORT_ROM_V1=0
 )
 
 pico_add_extra_outputs(${NAME})
