@@ -16,19 +16,13 @@
 #define PI 3.14159265359f
 
 
-uint8_t adc_random_bit()
-{
-    adc_select_input(0);
-    uint16_t raw_adc_value = adc_read();
-    return raw_adc_value & 1;
-}
-
 uint64_t adc_random_number()
 {
+    adc_select_input(0);
     uint64_t result = 0;
     for (int i = 0; i < 64; i++)
     {
-        result = (result << 1) | adc_random_bit();
+        result = (result << 1) | (adc_read() & 1);
     }
     return result;
 }
@@ -96,6 +90,7 @@ inline uint32_t pcg32_random()
 
 inline int16_t random_normal()
 {
+    // Irwin-Hall distribution
     uint32_t result = 0;
     for (uint i = 0; i < 6; i++)
     {
