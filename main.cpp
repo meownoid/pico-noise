@@ -162,10 +162,16 @@ int main()
 
     audio_i2s_set_enabled(true);
 
+    const float int16maxf = int2float(1 << 15);
+
+    // Precomputed low-pass and high-pass filter coefficients
     const float alpha_lp = calculate_lowpass_alpha(int2float(LOW_PASS_CUTOFF), int2float(SAMPLE_RATE));
     const float alpha_hp = calculate_highpass_alpha(int2float(HIGH_PASS_CUTOFF), int2float(SAMPLE_RATE));
     const float alpha_lp_inv = 1.0f - alpha_lp;
-    const float int16maxf = int2float(1 << 15);
+    // Leaky integrator factor - small value to prevent unbounded growth
+    const float leak_factor = 0.999f;
+    // Thresholds for state reset to prevent extreme values
+    const float reset_threshold = 1024.0f;
 
     float x = 0.0f;
     float x_p = 0.0f;
@@ -179,8 +185,14 @@ int main()
         for (uint i = 0; i < buffer->max_sample_count; i++)
         {
             float r = int2float(random_normal() >> 3) / int16maxf;
-            // Integrate normal white noise
-            x += r;
+            // Leaky integrator for numerical stability
+            x = x * leak_factor + r;
+            
+            // Safety check - reset if values grow too large
+            if (fabsf(x) > reset_threshold) {
+                x = 0.0f;
+            }
+            
             // Apply high-pass filter
             y_hp = alpha_hp * (y_hp + x - x_p);
             // Apply low-pass filter
